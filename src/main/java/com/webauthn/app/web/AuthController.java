@@ -56,7 +56,7 @@ public class AuthController {
             UserIdentity userIdentity = UserIdentity.builder()
                 .name(username)
                 .displayName(display)
-                .id(Utility.generateRandom(32))
+                .id(Utility.generateRandom(32))//隨機id防止跨站羧宗
                 .build();
             AppUser saveUser = new AppUser(userIdentity);
             service.getUserRepo().save(saveUser);
@@ -74,8 +74,16 @@ public class AuthController {
         AppUser existingUser = service.getUserRepo().findByHandle(user.getHandle());
         if (existingUser != null) {
             UserIdentity userIdentity = user.toUserIdentity();
+
+            //加 authenticatorSelection
+//            AuthenticatorSelectionCriteria selection = AuthenticatorSelectionCriteria.builder()
+//                    .authenticatorAttachment(AuthenticatorAttachment.CROSS_PLATFORM) // 外部裝置 (手機、YubiKey)
+//                    .userVerification(UserVerificationRequirement.PREFERRED)       // 可以 PIN / 生物辨識
+//                    .build();
+
             StartRegistrationOptions registrationOptions = StartRegistrationOptions.builder()
             .user(userIdentity)
+//                    .authenticatorSelection(selection)  // 把設定加進來
             .build();
             PublicKeyCredentialCreationOptions registration = relyingParty.startRegistration(registrationOptions);
             this.requestOptionMap.put(user.getUsername(), registration);

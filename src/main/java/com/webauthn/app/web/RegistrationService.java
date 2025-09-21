@@ -43,6 +43,8 @@ public class RegistrationService implements CredentialRepository  {
     @Override
     public Optional<ByteArray> getUserHandleForUsername(String username) {
         AppUser user = userRepo.findByUsername(username);
+        //1.不透明的位元組陣列，不會洩露用戶名等敏感資訊
+        //2.認證器(如 YubiKey)內部使用這個 handle 來識別用戶，而非用戶名
         return Optional.of(user.getHandle());
     }
 
