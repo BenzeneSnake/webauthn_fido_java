@@ -1,7 +1,10 @@
 package com.webauthn.app.web;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationFeature;
 import com.webauthn.app.authenticator.Authenticator;
+import com.webauthn.app.rq.RegisterRequest;
 import com.webauthn.app.user.AppUser;
 import com.webauthn.app.utility.Utility;
 import com.yubico.webauthn.*;
@@ -11,10 +14,7 @@ import com.yubico.webauthn.exception.RegistrationFailedException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.bind.annotation.ResponseBody;
+import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.servlet.ModelAndView;
 
@@ -22,7 +22,8 @@ import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
 
-@Controller
+@RestController
+@RequestMapping("/api")
 public class AuthController {
 
     private final RelyingParty relyingParty;
@@ -48,9 +49,11 @@ public class AuthController {
     @PostMapping("/register")
     @ResponseBody
     public String newUserRegistration(
-        @RequestParam String username,
-        @RequestParam String display
+            @RequestBody RegisterRequest request
     ) {
+        String username = request.getUsername();
+        String display = request.getDisplay();
+
         AppUser existingUser = service.getUserRepo().findByUsername(username);
         if (existingUser == null) {
             UserIdentity userIdentity = UserIdentity.builder()
@@ -76,14 +79,14 @@ public class AuthController {
             UserIdentity userIdentity = user.toUserIdentity();
 
             //加 authenticatorSelection
-//            AuthenticatorSelectionCriteria selection = AuthenticatorSelectionCriteria.builder()
-//                    .authenticatorAttachment(AuthenticatorAttachment.CROSS_PLATFORM) // 外部裝置 (手機、YubiKey)
-//                    .userVerification(UserVerificationRequirement.PREFERRED)       // 可以 PIN / 生物辨識
-//                    .build();
+            AuthenticatorSelectionCriteria selection = AuthenticatorSelectionCriteria.builder()
+                    .authenticatorAttachment(AuthenticatorAttachment.CROSS_PLATFORM) // 外部裝置 (手機、YubiKey)
+                    .userVerification(UserVerificationRequirement.PREFERRED)       // 可以 PIN / 生物辨識
+                    .build();
 
             StartRegistrationOptions registrationOptions = StartRegistrationOptions.builder()
             .user(userIdentity)
-//                    .authenticatorSelection(selection)  // 把設定加進來
+                    .authenticatorSelection(selection)  // 把設定加進來
             .build();
             PublicKeyCredentialCreationOptions registration = relyingParty.startRegistration(registrationOptions);
             this.requestOptionMap.put(user.getUsername(), registration);
@@ -98,9 +101,10 @@ public class AuthController {
         }
     }
 
+    //TODO:暫時回傳String
     @PostMapping("/finishauth")
     @ResponseBody
-    public ModelAndView finishRegisration(
+    public String finishRegisration(
         @RequestParam String credential,
         @RequestParam String username,
         @RequestParam String credname
@@ -119,7 +123,7 @@ public class AuthController {
                     RegistrationResult result = relyingParty.finishRegistration(options);
                     Authenticator savedAuth = new Authenticator(result, pkc.getResponse(), user, credname);
                     service.getAuthRepository().save(savedAuth);
-                    return new ModelAndView("redirect:/login", HttpStatus.SEE_OTHER);
+                    return "SUCCESS";
                 } else {
                     throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Cached request expired. Try to register again!");
                 }
