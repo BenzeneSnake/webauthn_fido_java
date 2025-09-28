@@ -1,12 +1,13 @@
 package com.webauthn.app.web;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.SerializationFeature;
 import com.webauthn.app.authenticator.Authenticator;
 import com.webauthn.app.common.api.RestResult;
+import com.webauthn.app.common.api.RestStatus;
+import com.webauthn.app.rq.FinishRegisrationRequest;
 import com.webauthn.app.rq.RegisterRequest;
 import com.webauthn.app.rs.CredentialCreateResponse;
+import com.webauthn.app.rs.FinishRegistrationResponse;
 import com.webauthn.app.user.AppUser;
 import com.webauthn.app.utility.Utility;
 import com.yubico.webauthn.*;
@@ -14,11 +15,9 @@ import com.yubico.webauthn.data.*;
 import com.yubico.webauthn.exception.AssertionFailedException;
 import com.yubico.webauthn.exception.RegistrationFailedException;
 import org.springframework.http.HttpStatus;
-import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
-import org.springframework.web.servlet.ModelAndView;
 
 import java.io.IOException;
 import java.util.HashMap;
@@ -29,13 +28,13 @@ import java.util.Map;
 public class AuthController {
 
     private final RelyingParty relyingParty;
-    private final RegistrationService service;
+    private final RegistrationService registrationService;
     private Map<String, PublicKeyCredentialCreationOptions> requestOptionMap = new HashMap<>();
     private Map<String, AssertionRequest> assertionRequestMap = new HashMap<>();
 
     AuthController(RegistrationService service, RelyingParty relyingPary) {
         this.relyingParty = relyingPary;
-        this.service = service;
+        this.registrationService = service;
     }
 
     @GetMapping("/")
@@ -56,7 +55,7 @@ public class AuthController {
         String username = request.getUsername();
         String display = request.getDisplay();
 
-        AppUser existingUser = service.getUserRepo().findByUsername(username);
+        AppUser existingUser = registrationService.getUserRepo().findByUsername(username);
         if (existingUser == null) {
             UserIdentity userIdentity = UserIdentity.builder()
                     .name(username)
@@ -64,7 +63,7 @@ public class AuthController {
                     .id(Utility.generateRandom(32))//隨機id防止跨站羧宗
                     .build();
             AppUser saveUser = new AppUser(userIdentity);
-            service.getUserRepo().save(saveUser);
+            registrationService.getUserRepo().save(saveUser);
             return performAuthRegistration(saveUser);
         } else {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Username " + username + " already exists. Choose a new name.");
@@ -81,7 +80,7 @@ public class AuthController {
 
     // 內部方法，支持直接調用
     private RestResult<CredentialCreateResponse> performAuthRegistration(AppUser user) {
-        AppUser existingUser = service.getUserRepo().findByHandle(user.getHandle());
+        AppUser existingUser = registrationService.getUserRepo().findByHandle(user.getHandle());
         if (existingUser != null) {
             UserIdentity userIdentity = user.toUserIdentity();
 
@@ -109,36 +108,42 @@ public class AuthController {
         }
     }
 
-    //TODO:暫時回傳String
     @PostMapping("/finishauth")
     @ResponseBody
-    public String finishRegisration(
-            @RequestParam String credential,
-            @RequestParam String username,
-            @RequestParam String credname
+    public RestResult<FinishRegistrationResponse> finishRegisration(
+            @RequestBody FinishRegisrationRequest finishRegisrationRequest
     ) {
         try {
-            AppUser user = service.getUserRepo().findByUsername(username);
+            String username = finishRegisrationRequest.getUsername();
+            String credname = finishRegisrationRequest.getCredname();
+            AppUser user = registrationService.getUserRepo().findByUsername(username);
 
             PublicKeyCredentialCreationOptions requestOptions = this.requestOptionMap.get(username);
             if (requestOptions != null) {
-                PublicKeyCredential<AuthenticatorAttestationResponse, ClientRegistrationExtensionOutputs> pkc =
-                        PublicKeyCredential.parseRegistrationResponseJson(credential);
+                PublicKeyCredential<AuthenticatorAttestationResponse, ClientRegistrationExtensionOutputs> pkc
+                        = finishRegisrationRequest.getCredential();
+                if (pkc == null) {
+                    return new RestResult<>(RestStatus.VALID.CODE, RestStatus.VALID.MESSAGE, FinishRegistrationResponse.failure("認證憑證為空"));
+                }
                 FinishRegistrationOptions options = FinishRegistrationOptions.builder()
                         .request(requestOptions)
                         .response(pkc)
                         .build();
                 RegistrationResult result = relyingParty.finishRegistration(options);
                 Authenticator savedAuth = new Authenticator(result, pkc.getResponse(), user, credname);
-                service.getAuthRepository().save(savedAuth);
-                return "SUCCESS";
+                registrationService.getAuthRepository().save(savedAuth);
+
+                // 清理快取
+                this.requestOptionMap.remove(username);
+
+                return new RestResult<>(FinishRegistrationResponse.success(username));
             } else {
                 throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Cached request expired. Try to register again!");
             }
         } catch (RegistrationFailedException e) {
-            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Registration failed.", e);
-        } catch (IOException e) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Failed to save credenital, please try again!", e);
+            return new RestResult<>(FinishRegistrationResponse.failure("註冊失敗: " + e.getMessage()));
+        } catch (Exception e) {
+            return new RestResult<>(RestStatus.UNKNOWN.CODE, RestStatus.UNKNOWN.MESSAGE, e.getMessage());
         }
     }
 
