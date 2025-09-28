@@ -176,7 +176,7 @@ public interface AuthenticatorRepository extends CrudRepository<Authenticator, L
 ## 服務層
 
 ### RegistrationService (`RegistrationService.java`)
-實作 `CredentialRepository` 介面，提供 WebAuthn 函式庫需要的憑證管理功能：
+實作Yubico的 `CredentialRepository` 介面，提供 WebAuthn 函式庫需要的憑證管理功能：
 
 1. **getCredentialIdsForUsername()**: 取得使用者的所有憑證 ID
 2. **getUserHandleForUsername()**: 根據使用者名稱取得 handle
