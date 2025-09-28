@@ -18,7 +18,6 @@ public class AppApplication {
 	}
 
 	@Bean
-	@Autowired
 	public RelyingParty relyingParty(RegistrationService regisrationRepository, WebAuthProperties properties) {
 		RelyingPartyIdentity rpIdentity = RelyingPartyIdentity.builder()
 			.id(properties.getHostName())
