@@ -1,12 +1,16 @@
 package com.webauthn.app.web;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.webauthn.app.authenticator.Authenticator;
 import com.webauthn.app.common.api.RestResult;
 import com.webauthn.app.common.api.RestStatus;
+import com.webauthn.app.rq.FinishLoginRequest;
 import com.webauthn.app.rq.FinishRegisrationRequest;
+import com.webauthn.app.rq.LoginRequest;
 import com.webauthn.app.rq.RegisterRequest;
 import com.webauthn.app.rs.CredentialCreateResponse;
+import com.webauthn.app.rs.CredentialGetResponse;
 import com.webauthn.app.rs.FinishRegistrationResponse;
 import com.webauthn.app.user.AppUser;
 import com.webauthn.app.utility.Utility;
@@ -113,6 +117,7 @@ public class AuthController {
     public RestResult<FinishRegistrationResponse> finishRegisration(
             @RequestBody FinishRegisrationRequest finishRegisrationRequest
     ) {
+
         try {
             String username = finishRegisrationRequest.getUsername();
             String credname = finishRegisrationRequest.getCredname();
@@ -154,36 +159,40 @@ public class AuthController {
 
     @PostMapping("/login")
     @ResponseBody
-    public String startLogin(
-            @RequestParam String username
+    public RestResult<CredentialGetResponse> startLogin(
+            @RequestBody LoginRequest loginRequest
     ) {
+        String username = loginRequest.getUsername();
         AssertionRequest request = relyingParty.startAssertion(StartAssertionOptions.builder()
                 .username(username)
                 .build());
         try {
             this.assertionRequestMap.put(username, request);
-            return request.toCredentialsGetJson();
+            String credentialsJson = request.toCredentialsGetJson();
+            ObjectMapper objectMapper = new ObjectMapper();
+            CredentialGetResponse credentialsObject = objectMapper.readValue(credentialsJson, CredentialGetResponse.class);
+            return new RestResult<>(credentialsObject);
         } catch (JsonProcessingException e) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, e.getMessage());
+            return new RestResult<>(RestStatus.UNKNOWN, e.getMessage());
         }
     }
 
     @PostMapping("/welcome")
     public String finishLogin(
-            @RequestParam String credential,
-            @RequestParam String username,
+            @RequestBody FinishLoginRequest finishLoginRequest,
             Model model
     ) {
         try {
+            //登入完成，回傳簽章驗證資料
             PublicKeyCredential<AuthenticatorAssertionResponse, ClientAssertionExtensionOutputs> pkc;
-            pkc = PublicKeyCredential.parseAssertionResponseJson(credential);
-            AssertionRequest request = this.assertionRequestMap.get(username);
+            pkc = PublicKeyCredential.parseAssertionResponseJson(finishLoginRequest.getCredential());
+            AssertionRequest request = this.assertionRequestMap.get(finishLoginRequest.getUsername());
             AssertionResult result = relyingParty.finishAssertion(FinishAssertionOptions.builder()
                     .request(request)
                     .response(pkc)
                     .build());
             if (result.isSuccess()) {
-                model.addAttribute("username", username);
+                model.addAttribute("username", finishLoginRequest.getUsername());
                 return "welcome";
             } else {
                 return "index";
