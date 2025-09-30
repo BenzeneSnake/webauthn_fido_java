@@ -11,6 +11,7 @@ import com.webauthn.app.rq.LoginRequest;
 import com.webauthn.app.rq.RegisterRequest;
 import com.webauthn.app.rs.CredentialCreateResponse;
 import com.webauthn.app.rs.CredentialGetResponse;
+import com.webauthn.app.rs.FinishLoginResponse;
 import com.webauthn.app.rs.FinishRegistrationResponse;
 import com.webauthn.app.user.AppUser;
 import com.webauthn.app.utility.Utility;
@@ -178,9 +179,8 @@ public class AuthController {
     }
 
     @PostMapping("/welcome")
-    public String finishLogin(
-            @RequestBody FinishLoginRequest finishLoginRequest,
-            Model model
+    public RestResult<FinishLoginResponse> finishLogin(
+            @RequestBody FinishLoginRequest finishLoginRequest
     ) {
         try {
             //登入完成，回傳簽章驗證資料
@@ -192,10 +192,9 @@ public class AuthController {
                     .response(pkc)
                     .build());
             if (result.isSuccess()) {
-                model.addAttribute("username", finishLoginRequest.getUsername());
-                return "welcome";
+                return new RestResult<>(FinishLoginResponse.success(finishLoginRequest.getUsername()));
             } else {
-                return "index";
+                return new RestResult<>(FinishLoginResponse.failure("Authentication failed"));
             }
         } catch (IOException e) {
             throw new RuntimeException("Authentication failed", e);
