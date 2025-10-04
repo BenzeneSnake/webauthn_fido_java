@@ -1,11 +1,6 @@
 package com.webauthn.app.user;
 
-import javax.persistence.Column;
-import javax.persistence.Entity;
-import javax.persistence.GeneratedValue;
-import javax.persistence.GenerationType;
-import javax.persistence.Id;
-import javax.persistence.Lob;
+import jakarta.persistence.*;
 
 import com.yubico.webauthn.data.ByteArray;
 import com.yubico.webauthn.data.UserIdentity;
@@ -39,9 +34,9 @@ public class AppUser {
 
     public UserIdentity toUserIdentity() {
         return UserIdentity.builder()
-            .name(getUsername())
-            .displayName(getDisplayName())
-            .id(getHandle())
-            .build();
+                .name(getUsername())
+                .displayName(getDisplayName())
+                .id(getHandle())
+                .build();
     }
 }

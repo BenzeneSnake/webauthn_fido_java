@@ -25,6 +25,7 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.io.IOException;
+import java.util.Base64;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -40,11 +41,6 @@ public class AuthController {
     AuthController(RegistrationService service, RelyingParty relyingPary) {
         this.relyingParty = relyingPary;
         this.registrationService = service;
-    }
-
-    @GetMapping("/")
-    public String welcome() {
-        return "index";
     }
 
     @GetMapping("/register")
@@ -131,6 +127,12 @@ public class AuthController {
                 if (pkc == null) {
                     return new RestResult<>(RestStatus.VALID.CODE, RestStatus.VALID.MESSAGE, FinishRegistrationResponse.failure("認證憑證為空"));
                 }
+                byte[] attestationBytes = pkc.getResponse().getAttestationObject().getBytes();
+
+                byte[] clientDataBytes = pkc.getResponse().getClientDataJSON().getBytes();
+
+                System.out.println("attestationObject (Base64): " + Base64.getEncoder().encodeToString(attestationBytes));
+                System.out.println("clientDataJSON (Base64): " + Base64.getEncoder().encodeToString(clientDataBytes));
                 FinishRegistrationOptions options = FinishRegistrationOptions.builder()
                         .request(requestOptions)
                         .response(pkc)

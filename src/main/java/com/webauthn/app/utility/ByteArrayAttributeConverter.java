@@ -1,7 +1,7 @@
 package com.webauthn.app.utility;
 
-import javax.persistence.AttributeConverter;
-import javax.persistence.Converter;
+import jakarta.persistence.AttributeConverter;
+import jakarta.persistence.Converter;
 
 import com.yubico.webauthn.data.ByteArray;
 
