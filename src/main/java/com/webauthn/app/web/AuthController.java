@@ -13,6 +13,7 @@ import com.webauthn.app.rs.CredentialCreateResponse;
 import com.webauthn.app.rs.CredentialGetResponse;
 import com.webauthn.app.rs.FinishLoginResponse;
 import com.webauthn.app.rs.FinishRegistrationResponse;
+import com.webauthn.app.service.RegistrationService;
 import com.webauthn.app.user.AppUser;
 import com.webauthn.app.utility.Utility;
 import com.yubico.webauthn.*;

@@ -1,4 +1,4 @@
-package com.webauthn.app.web;
+package com.webauthn.app.service;
 
 import java.util.List;
 import java.util.Optional;
@@ -21,7 +21,7 @@ import lombok.Getter;
 
 @Repository
 @Getter
-public class RegistrationService implements CredentialRepository  {
+public class RegistrationService implements CredentialRepository {
     @Autowired
     private UserRepository userRepo;
     @Autowired
@@ -32,12 +32,12 @@ public class RegistrationService implements CredentialRepository  {
         AppUser user = userRepo.findByUsername(username);
         List<Authenticator> auth = authRepository.findAllByUser(user);
         return auth.stream()
-        .map(
-            credential ->
-                PublicKeyCredentialDescriptor.builder()
-                    .id(credential.getCredentialId())
-                    .build())
-        .collect(Collectors.toSet());
+                .map(
+                        credential ->
+                                PublicKeyCredentialDescriptor.builder()
+                                        .id(credential.getCredentialId())
+                                        .build())
+                .collect(Collectors.toSet());
     }
 
     @Override
@@ -58,13 +58,13 @@ public class RegistrationService implements CredentialRepository  {
     public Optional<RegisteredCredential> lookup(ByteArray credentialId, ByteArray userHandle) {
         Optional<Authenticator> auth = authRepository.findByCredentialId(credentialId);
         return auth.map(
-            credential ->
-                RegisteredCredential.builder()
-                    .credentialId(credential.getCredentialId())
-                    .userHandle(credential.getUser().getHandle())
-                    .publicKeyCose(credential.getPublicKey())
-                    .signatureCount(credential.getCount())
-                    .build()
+                credential ->
+                        RegisteredCredential.builder()
+                                .credentialId(credential.getCredentialId())
+                                .userHandle(credential.getUser().getHandle())
+                                .publicKeyCose(credential.getPublicKey())
+                                .signatureCount(credential.getCount())
+                                .build()
         );
     }
 
@@ -72,14 +72,14 @@ public class RegistrationService implements CredentialRepository  {
     public Set<RegisteredCredential> lookupAll(ByteArray credentialId) {
         List<Authenticator> auth = authRepository.findAllByCredentialId(credentialId);
         return auth.stream()
-        .map(
-            credential ->
-                RegisteredCredential.builder()
-                    .credentialId(credential.getCredentialId())
-                    .userHandle(credential.getUser().getHandle())
-                    .publicKeyCose(credential.getPublicKey())
-                    .signatureCount(credential.getCount())
-                    .build())
-        .collect(Collectors.toSet());
+                .map(
+                        credential ->
+                                RegisteredCredential.builder()
+                                        .credentialId(credential.getCredentialId())
+                                        .userHandle(credential.getUser().getHandle())
+                                        .publicKeyCose(credential.getPublicKey())
+                                        .signatureCount(credential.getCount())
+                                        .build())
+                .collect(Collectors.toSet());
     }
 }
