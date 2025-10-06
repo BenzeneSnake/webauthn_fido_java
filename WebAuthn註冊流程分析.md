@@ -1,11 +1,13 @@
 # WebAuthn 註冊流程分析
 
 ## 概述
+
 這個專案實作了 WebAuthn (Web Authentication) 的註冊功能，讓使用者可以使用生物辨識或硬體金鑰進行安全註冊。整個流程分為三個主要步驟：使用者註冊、認證器註冊、完成註冊。
 
 ## 架構組成
 
 ### 核心類別
+
 1. **AuthController** - 控制器，處理所有 HTTP 請求
 2. **RegistrationService** - 服務層，實作 CredentialRepository 介面
 3. **AppUser** - 使用者實體
@@ -20,19 +22,22 @@
 **位置**: `AuthController.java:48-67`
 
 ```java
+
 @PostMapping("/register")
 public String newUserRegistration(
-    @RequestParam String username,
-    @RequestParam String display
+        @RequestParam String username,
+        @RequestParam String display
 )
 ```
 
 **流程**:
+
 1. 檢查使用者名稱是否已存在 (`service.getUserRepo().findByUsername(username)`)
 2. 如果不存在，建立 `UserIdentity` 物件：
-   - `name`: 使用者名稱
-   - `displayName`: 顯示名稱
-   - `id`: 隨機生成的 32 位元組 ID (`Utility.generateRandom(32)`)防止跨站追蹤，確保不同網站無法透過相同的使用者 ID 來追蹤同一個使用者
+    - `name`: 使用者名稱
+    - `displayName`: 顯示名稱
+    - `id`: 隨機生成的 32 位元組 ID (`Utility.generateRandom(32)`)防止跨站追蹤，確保不同網站無法透過相同的使用者 ID
+      來追蹤同一個使用者
 3. 建立並儲存 `AppUser` 實體到資料庫
 4. 自動呼叫 `newAuthRegistration()` 進入下一階段
 
@@ -43,11 +48,13 @@ public String newUserRegistration(
 **位置**: `AuthController.java:69-99`
 
 ```java
+
 @PostMapping("/registerauth")
 public String newAuthRegistration(@RequestParam AppUser user)
 ```
 
 **流程**:
+
 1. 驗證使用者是否存在 (`service.getUserRepo().findByHandle(user.getHandle())`)
 2. 將 `AppUser` 轉換為 `UserIdentity` (`user.toUserIdentity()`)
 3. 建立註冊選項：
@@ -70,15 +77,17 @@ public String newAuthRegistration(@RequestParam AppUser user)
 **位置**: `AuthController.java:101-131`
 
 ```java
+
 @PostMapping("/finishauth")
 public ModelAndView finishRegisration(
-    @RequestParam String credential,
-    @RequestParam String username,
-    @RequestParam String credname
+        @RequestParam String credential,
+        @RequestParam String username,
+        @RequestParam String credname
 )
 ```
 
 **流程**:
+
 1. 根據 username 找到使用者和快取的註冊選項
 2. 解析前端傳來的憑證回應：
    ```java
@@ -104,6 +113,7 @@ public ModelAndView finishRegisration(
 6. 重定向到登入頁面
 
 **錯誤處理**:
+
 - 註冊選項過期：HTTP 500 INTERNAL_SERVER_ERROR
 - 註冊驗證失敗：HTTP 502 BAD_GATEWAY
 - 儲存失敗：HTTP 400 BAD_REQUEST
@@ -111,7 +121,9 @@ public ModelAndView finishRegisration(
 ## 資料模型
 
 ### AppUser 實體 (`AppUser.java`)
+
 ```java
+
 @Entity
 public class AppUser {
     @Id
@@ -131,10 +143,13 @@ public class AppUser {
 ```
 
 **關鍵方法**:
+
 - `toUserIdentity()`: 轉換為 WebAuthn 的 UserIdentity 物件
 
 ### Authenticator 實體 (`Authenticator.java`)
+
 ```java
+
 @Entity
 public class Authenticator {
     @Id
@@ -157,18 +172,23 @@ public class Authenticator {
 ## 資料存取層
 
 ### UserRepository (`UserRepository.java`)
+
 ```java
 public interface UserRepository extends CrudRepository<AppUser, Long> {
     AppUser findByUsername(String name);    // 根據使用者名稱查詢
+
     AppUser findByHandle(ByteArray handle); // 根據 WebAuthn handle 查詢
 }
 ```
 
 ### AuthenticatorRepository (`AuthenticatorRepository.java`)
+
 ```java
 public interface AuthenticatorRepository extends CrudRepository<Authenticator, Long> {
     Optional<Authenticator> findByCredentialId(ByteArray credentialId);      // 根據憑證 ID 查詢
+
     List<Authenticator> findAllByUser(AppUser user);                         // 查詢使用者的所有認證器
+
     List<Authenticator> findAllByCredentialId(ByteArray credentialId);       // 查詢憑證 ID 的所有認證器
 }
 ```
@@ -176,6 +196,7 @@ public interface AuthenticatorRepository extends CrudRepository<Authenticator, L
 ## 服務層
 
 ### RegistrationService (`RegistrationService.java`)
+
 實作Yubico的 `CredentialRepository` 介面，提供 WebAuthn 函式庫需要的憑證管理功能：
 
 1. **getCredentialIdsForUsername()**: 取得使用者的所有憑證 ID
@@ -190,24 +211,6 @@ public interface AuthenticatorRepository extends CrudRepository<Authenticator, L
 2. **憑證驗證**: 透過 `RelyingParty.finishRegistration()` 進行完整的憑證驗證
 3. **簽章計數器**: 儲存並追蹤簽章計數器，防止重放攻擊
 4. **快取管理**: 註冊選項有暫存機制，防止過期請求
-
-## 流程圖
-
-```
-使用者輸入 username/display
-           ↓
-    POST /register (檢查使用者是否存在)
-           ↓
-    建立 AppUser 並儲存到資料庫
-           ↓
-    POST /registerauth (產生 WebAuthn 挑戰)
-           ↓
-    前端呼叫瀏覽器 WebAuthn API
-           ↓
-    POST /finishauth (驗證並儲存認證器)
-           ↓
-       重定向到登入頁面
-```
 
 ## 總結
 
