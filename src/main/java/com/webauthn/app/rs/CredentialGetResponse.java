@@ -17,6 +17,7 @@ public class CredentialGetResponse {
         private List<PublicKeyCredentialDescriptor> allowCredentials;
         private String userVerification;
         private Object extensions;
+        private List<String> hints;
     }
 
     @Data

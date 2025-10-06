@@ -1,0 +1,8 @@
+keycloak:
+  server-url: http://localhost:8180
+  realm: myrealm
+  client-id: webauthn-client
+  client-secret: mysecret
+  admin:
+    username: admin
+    password: admin

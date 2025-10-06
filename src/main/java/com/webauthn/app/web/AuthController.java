@@ -44,11 +44,6 @@ public class AuthController {
         this.registrationService = service;
     }
 
-    @GetMapping("/register")
-    public String registerUser(Model model) {
-        return "register";
-    }
-
     @PostMapping("/register")
     @ResponseBody
     public RestResult<CredentialCreateResponse> newUserRegistration(
@@ -132,8 +127,8 @@ public class AuthController {
 
                 byte[] clientDataBytes = pkc.getResponse().getClientDataJSON().getBytes();
 
-                System.out.println("attestationObject (Base64): " + Base64.getEncoder().encodeToString(attestationBytes));
-                System.out.println("clientDataJSON (Base64): " + Base64.getEncoder().encodeToString(clientDataBytes));
+//                System.out.println("attestationObject (Base64): " + Base64.getEncoder().encodeToString(attestationBytes));//TODO: FOR TEST
+//                System.out.println("clientDataJSON (Base64): " + Base64.getEncoder().encodeToString(clientDataBytes));//TODO: FOR TEST
                 FinishRegistrationOptions options = FinishRegistrationOptions.builder()
                         .request(requestOptions)
                         .response(pkc)
@@ -154,11 +149,6 @@ public class AuthController {
         } catch (Exception e) {
             return new RestResult<>(RestStatus.UNKNOWN.CODE, RestStatus.UNKNOWN.MESSAGE, e.getMessage());
         }
-    }
-
-    @GetMapping("/login")
-    public String loginPage() {
-        return "login";
     }
 
     @PostMapping("/login")
