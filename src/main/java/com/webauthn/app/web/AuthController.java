@@ -13,6 +13,7 @@ import com.webauthn.app.rs.CredentialCreateResponse;
 import com.webauthn.app.rs.CredentialGetResponse;
 import com.webauthn.app.rs.FinishLoginResponse;
 import com.webauthn.app.rs.FinishRegistrationResponse;
+import com.webauthn.app.service.KeycloakService;
 import com.webauthn.app.service.RegistrationService;
 import com.webauthn.app.user.AppUser;
 import com.webauthn.app.utility.Utility;
@@ -20,6 +21,8 @@ import com.yubico.webauthn.*;
 import com.yubico.webauthn.data.*;
 import com.yubico.webauthn.exception.AssertionFailedException;
 import com.yubico.webauthn.exception.RegistrationFailedException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.*;
@@ -33,15 +36,18 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api")
 public class AuthController {
+    private static final Logger log = LoggerFactory.getLogger(AuthController.class);
 
     private final RelyingParty relyingParty;
     private final RegistrationService registrationService;
+    private final KeycloakService keycloakService;
     private Map<String, PublicKeyCredentialCreationOptions> requestOptionMap = new HashMap<>();
     private Map<String, AssertionRequest> assertionRequestMap = new HashMap<>();
 
-    AuthController(RegistrationService service, RelyingParty relyingPary) {
+    AuthController(RegistrationService service, RelyingParty relyingPary, KeycloakService keycloakService) {
         this.relyingParty = relyingPary;
         this.registrationService = service;
+        this.keycloakService = keycloakService;
     }
 
     @PostMapping("/register")
@@ -60,9 +66,54 @@ public class AuthController {
                     .id(Utility.generateRandom(32))//隨機id防止跨站羧宗
                     .build();
             AppUser saveUser = new AppUser(userIdentity);
+            // 先儲存到本地 DB
             registrationService.getUserRepo().save(saveUser);
-            return performAuthRegistration(saveUser);
+
+            // 在 Keycloak 建立用戶，若失敗則本地DB用戶也不儲存
+            String keycloakUserId = null;
+            try {
+                keycloakUserId = keycloakService.createUserWithRetry(username);
+                log.info("新User創建在Keycloak: {} with userId: {}", username, keycloakUserId);
+
+                // 嘗試指派預設角色
+                try {
+                    //TODO:view_entry_role是自訂role，作為串接keycloak練習用，之後可以改成依 使用者類型或策略自動分配角色
+                    //TODO:註冊時可以帶一個 userType 或 groupType 欄位，後端根據 userType 決定是否 assign view_entry_role
+                    keycloakService.assignRole(keycloakUserId, "view_entry_role");
+                    log.info("指派預設角色給用戶 in Keycloak: {}", username);
+                } catch (Exception roleException) {
+                    log.error("指派預設角色 in Keycloak 失敗: {}", username, roleException);
+                    // 角色指派失敗，rollback Keycloak 用戶
+                    try {
+                        //刪除用戶
+                        keycloakService.deleteUser(keycloakUserId);
+                        log.info("Rolled back Keycloak user after role assignment failure: {}", username);
+                    } catch (Exception deleteException) {
+                        log.error("刪除用戶失敗: {}", username, deleteException);
+                    }
+                    throw new RuntimeException("指派預設角色給用戶 in Keycloak 失敗", roleException);
+                }
+
+                log.info("User registration completed successfully: {}", username);
+                return performAuthRegistration(saveUser);
+
+            } catch (Exception keycloakException) {
+                log.error("Keycloak 操作失敗， user: {}", username, keycloakException);
+                // Keycloak 操作失敗，rollback 本地用戶
+                try {
+                    registrationService.getUserRepo().delete(saveUser);
+                    log.info("Keycloak 操作失敗，本地DB刪除用戶，user: {}", username);
+                } catch (Exception deleteException) {
+                    log.error("本地DB刪除用戶失敗，user: {}", username, deleteException);
+                }
+                throw new ResponseStatusException(
+                    HttpStatus.SERVICE_UNAVAILABLE,
+                    "Failed to create user in authentication system. Please try again later.",
+                    keycloakException
+                );
+            }
         } else {
+            log.warn("User registration failed - username already exists: {}", username);
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Username " + username + " already exists. Choose a new name.");
         }
     }

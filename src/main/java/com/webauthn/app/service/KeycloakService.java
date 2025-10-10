@@ -54,16 +54,16 @@ public class KeycloakService {
         }
 
         // Token 不存在或已過期，重新取得
+        // 使用 client_credentials grant type（推薦用於服務間認證）
         Map<String, String> formData = Map.of(
-                "grant_type", "password",
+                "grant_type", "client_credentials",
                 "client_id", clientId,
-                "username", adminUsername,
-                "password", adminPassword
+                "client_secret", clientSecret
         );
 
-        //用 master realm 的 admin 帳號 去拿 token。
+        //用 myrealm 的 springboot-webapp client 去拿 token。
         JsonNode response = Objects.requireNonNull(webClient.post()
-                        .uri(serverUrl + "/realms/master/protocol/openid-connect/token")
+                        .uri(serverUrl + "/realms/" + realm + "/protocol/openid-connect/token")
                         .contentType(MediaType.APPLICATION_FORM_URLENCODED)
                         .bodyValue(formData.entrySet().stream()
                                 .map(e -> e.getKey() + "=" + e.getValue())
@@ -82,6 +82,7 @@ public class KeycloakService {
         return adminToken;
     }
 
+    //TODO:可以抽出使用共用RETRY
     /**
      * 處理Keycloak暫時性故障，使用指數退避重試機制
      * @param username 用戶名稱
@@ -200,7 +201,7 @@ public class KeycloakService {
     public void assignRole(String userId, String roleName) {
         String token = getAdminToken();
 
-        // 取得 roleId
+        // 查特定 realm role 取得 roleId
         JsonNode role = webClient.get()
                 .uri(serverUrl + "/admin/realms/" + realm + "/roles/" + roleName)
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
@@ -213,6 +214,7 @@ public class KeycloakService {
                 "name", role.get("name").asText()
         );
 
+        //把一個或多個「Realm Role」分配給指定的使用者。
         webClient.post()
                 .uri(serverUrl + "/admin/realms/" + realm + "/users/" + userId + "/role-mappings/realm")
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
@@ -220,5 +222,19 @@ public class KeycloakService {
                 .retrieve()
                 .toBodilessEntity()
                 .block();
+    }
+
+    /**
+     * 刪除 Keycloak 用戶（用於 rollback）
+     */
+    public void deleteUser(String userId) {
+        String token = getAdminToken();
+        webClient.delete()
+                .uri(serverUrl + "/admin/realms/" + realm + "/users/" + userId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                .retrieve()
+                .toBodilessEntity()
+                .block();
+        log.info("Deleted user from Keycloak: {}", userId);
     }
 }

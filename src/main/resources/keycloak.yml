@@ -1,8 +1,9 @@
 keycloak:
   server-url: http://localhost:8180
   realm: myrealm
-  client-id: webauthn-client
-  client-secret: mysecret
+  client-id: springboot-webapp
+  #從Keycloak clients -> credentials -> Client Secret去查出來
+  client-secret:
   admin:
     username: admin
     password: admin
