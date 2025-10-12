@@ -3,7 +3,15 @@ keycloak:
   realm: myrealm
   client-id: springboot-webapp
   #從Keycloak clients -> credentials -> Client Secret去查出來
-  client-secret:
+  client-secret: kfo45Bi6ydvHvxTDmIg2hFgSI5mHpMHR
   admin:
     username: admin
     password: admin
+  roles:
+    # 預設角色：所有新用戶註冊時自動分配
+    default:
+      - view_entry_role
+    # 已驗證角色：完成 WebAuthn 認證後分配
+    verified:
+      - authenticated-user
+      - webauthn-enabled
