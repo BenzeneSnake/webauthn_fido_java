@@ -119,7 +119,7 @@ public class AuthController {
             PublicKeyCredentialCreationOptions registration = relyingParty.startRegistration(registrationOptions);
             this.requestOptionMap.put(user.getUsername(), registration);
 
-            // 返回 WebAuthn challenge 和 userId
+            // 返回 註冊選項 和 userId
             return new RestResult<>(CredentialCreateResponse.from(registration, user.getId()));
         } else {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "User " + user.getUsername() + " does not exist. Please register.");
@@ -154,7 +154,7 @@ public class AuthController {
                     return new RestResult<>(RestStatus.VALID.CODE, RestStatus.VALID.MESSAGE, FinishRegistrationResponse.failure("認證憑證為空"));
                 }
 
-                // WebAuthn 驗證
+                //FIDO2: 驗證時: 伺服器使用公鑰，去驗證此簽章是否有效。
                 FinishRegistrationOptions options = FinishRegistrationOptions.builder()
                         .request(requestOptions)
                         .response(pkc)
@@ -260,13 +260,15 @@ public class AuthController {
             @RequestBody FinishLoginRequest finishLoginRequest
     ) {
         try {
-            //登入完成，回傳簽章驗證資料
+            //FIDO2: 驗證時: 伺服器使用公鑰，去驗證此簽章是否有效。
             PublicKeyCredential<AuthenticatorAssertionResponse, ClientAssertionExtensionOutputs> pkc;
             pkc = PublicKeyCredential.parseAssertionResponseJson(finishLoginRequest.getCredential());
             AssertionRequest request = this.assertionRequestMap.get(finishLoginRequest.getUsername());
+
+            // library 會自動用先前註冊時存的公鑰 去驗證簽章是否正確。
             AssertionResult result = relyingParty.finishAssertion(FinishAssertionOptions.builder()
-                    .request(request)
-                    .response(pkc)
+                    .request(request) // 前端登入請求時的 challenge/credentialId 等資訊
+                    .response(pkc) // 前端傳回的簽章 (AuthenticatorAssertionResponse)
                     .build());
             if (result.isSuccess()) {
                 return new RestResult<>(FinishLoginResponse.success(finishLoginRequest.getUsername()));
