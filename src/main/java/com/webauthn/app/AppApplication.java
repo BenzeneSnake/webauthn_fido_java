@@ -1,7 +1,7 @@
 package com.webauthn.app;
 
 import com.webauthn.app.configuration.WebAuthProperties;
-import com.webauthn.app.infrastructure.retry.repository.RegistrationRepository;
+import com.webauthn.app.infrastructure.repository.RegistrationRepository;
 import com.yubico.webauthn.RelyingParty;
 import com.yubico.webauthn.data.RelyingPartyIdentity;
 
