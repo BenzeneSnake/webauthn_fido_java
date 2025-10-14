@@ -1,4 +1,4 @@
-package com.webauthn.app.service;
+package com.webauthn.app.infrastructure.retry.repository;
 
 import java.util.List;
 import java.util.Optional;
@@ -21,7 +21,7 @@ import lombok.Getter;
 
 @Repository
 @Getter
-public class RegistrationService implements CredentialRepository {
+public class RegistrationRepository implements CredentialRepository {
     @Autowired
     private UserRepository userRepo;
     @Autowired

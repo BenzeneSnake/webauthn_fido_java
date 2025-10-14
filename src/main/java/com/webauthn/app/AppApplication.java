@@ -1,7 +1,7 @@
 package com.webauthn.app;
 
 import com.webauthn.app.configuration.WebAuthProperties;
-import com.webauthn.app.service.RegistrationService;
+import com.webauthn.app.infrastructure.retry.repository.RegistrationRepository;
 import com.yubico.webauthn.RelyingParty;
 import com.yubico.webauthn.data.RelyingPartyIdentity;
 
@@ -17,7 +17,7 @@ public class AppApplication {
     }
 
     @Bean
-    public RelyingParty relyingParty(RegistrationService regisrationRepository, WebAuthProperties properties) {
+    public RelyingParty relyingParty(RegistrationRepository regisrationRepository, WebAuthProperties properties) {
         RelyingPartyIdentity rpIdentity = RelyingPartyIdentity.builder()
                 .id(properties.getHostName())
                 .name(properties.getDisplay())

@@ -14,7 +14,7 @@ import com.webauthn.app.rs.CredentialGetResponse;
 import com.webauthn.app.rs.FinishLoginResponse;
 import com.webauthn.app.rs.FinishRegistrationResponse;
 import com.webauthn.app.service.KeycloakService;
-import com.webauthn.app.service.RegistrationService;
+import com.webauthn.app.infrastructure.retry.repository.RegistrationRepository;
 import com.webauthn.app.strategy.RoleStrategy;
 import com.webauthn.app.user.AppUser;
 import com.webauthn.app.user.RegistrationStatus;
@@ -26,12 +26,10 @@ import com.yubico.webauthn.exception.RegistrationFailedException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
-import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.io.IOException;
-import java.util.Base64;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -42,15 +40,15 @@ public class AuthController {
     private static final Logger log = LoggerFactory.getLogger(AuthController.class);
 
     private final RelyingParty relyingParty;
-    private final RegistrationService registrationService;
+    private final RegistrationRepository registrationRepository;
     private final KeycloakService keycloakService;
     private final RoleStrategy roleStrategy;
     private Map<String, PublicKeyCredentialCreationOptions> requestOptionMap = new HashMap<>();
     private Map<String, AssertionRequest> assertionRequestMap = new HashMap<>();
 
-    AuthController(RegistrationService service, RelyingParty relyingPary, KeycloakService keycloakService, RoleStrategy roleStrategy) {
+    AuthController(RegistrationRepository registrationRepository, RelyingParty relyingPary, KeycloakService keycloakService, RoleStrategy roleStrategy) {
         this.relyingParty = relyingPary;
-        this.registrationService = service;
+        this.registrationRepository = registrationRepository;
         this.keycloakService = keycloakService;
         this.roleStrategy = roleStrategy;
     }
@@ -67,7 +65,7 @@ public class AuthController {
         String username = request.getUsername();
         String display = request.getDisplay();
 
-        AppUser existingUser = registrationService.getUserRepo().findByUsername(username);
+        AppUser existingUser = registrationRepository.getUserRepo().findByUsername(username);
         if (existingUser == null) {
             log.info("Stage 1: 暫存註冊，Creating pending user in local DB: {}", username);
 
@@ -79,7 +77,7 @@ public class AuthController {
 
             AppUser saveUser = new AppUser(userIdentity);
             // 只儲存到本地 DB，狀態為 PENDING
-            registrationService.getUserRepo().save(saveUser);
+            registrationRepository.getUserRepo().save(saveUser);
 
             log.info("成功暫存User: {} with userId: {}", username, saveUser.getId());
 
@@ -102,7 +100,7 @@ public class AuthController {
 
     // 內部方法，支持直接調用
     private RestResult<CredentialCreateResponse> performAuthRegistration(AppUser user) {
-        AppUser existingUser = registrationService.getUserRepo().findByHandle(user.getHandle());
+        AppUser existingUser = registrationRepository.getUserRepo().findByHandle(user.getHandle());
         if (existingUser != null) {
             UserIdentity userIdentity = user.toUserIdentity();
 
@@ -139,7 +137,7 @@ public class AuthController {
         try {
             String username = finishRegisrationRequest.getUsername();
             String credname = finishRegisrationRequest.getCredname();
-            AppUser user = registrationService.getUserRepo().findByUsername(username);
+            AppUser user = registrationRepository.getUserRepo().findByUsername(username);
 
             if (user == null) {
                 log.error("User not found for finishauth: {}", username);
@@ -165,7 +163,7 @@ public class AuthController {
 
                 // WebAuthn 驗證成功，儲存 Authenticator
                 Authenticator savedAuth = new Authenticator(result, pkc.getResponse(), user, credname);
-                registrationService.getAuthRepository().save(savedAuth);
+                registrationRepository.getAuthRepository().save(savedAuth);
 
                 // 清理快取
                 this.requestOptionMap.remove(username);
@@ -198,13 +196,13 @@ public class AuthController {
                             log.error("Failed to delete Keycloak user during rollback: {}", username, deleteException);
                         }
                         // 刪除 Authenticator (因為 Keycloak 建立失敗)
-                        registrationService.getAuthRepository().delete(savedAuth);
+                        registrationRepository.getAuthRepository().delete(savedAuth);
                         throw new RuntimeException("Failed to assign default roles in Keycloak", roleException);
                     }
 
                     // 更新註冊狀態為 COMPLETED
                     user.setRegistrationStatus(RegistrationStatus.COMPLETED);
-                    registrationService.getUserRepo().save(user);
+                    registrationRepository.getUserRepo().save(user);
 
                     log.info("User registration fully completed: {}", username);
 
@@ -214,7 +212,7 @@ public class AuthController {
                     log.error("Failed to create user in Keycloak: {}", username, keycloakException);
                     // Keycloak 建立失敗，刪除 Authenticator
                     try {
-                        registrationService.getAuthRepository().delete(savedAuth);
+                        registrationRepository.getAuthRepository().delete(savedAuth);
                         log.info("Rolled back Authenticator after Keycloak creation failure: {}", username);
                     } catch (Exception deleteException) {
                         log.error("Failed to delete Authenticator during rollback: {}", username, deleteException);
@@ -295,7 +293,7 @@ public class AuthController {
     public RestResult<String> deleteUser(@PathVariable Long userId) {
         log.info("User deletion requested for userId: {}", userId);
 
-        AppUser user = registrationService.getUserRepo().findById(userId).orElse(null);
+        AppUser user = registrationRepository.getUserRepo().findById(userId).orElse(null);
         if (user == null) {
             log.warn("User not found for deletion, userId: {}", userId);
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found");
@@ -308,7 +306,7 @@ public class AuthController {
             // PENDING 用戶：只刪除本地 DB（Keycloak 根本沒建立）
             log.info("Deleting PENDING user (local DB only): {}", username);
             try {
-                registrationService.getUserRepo().delete(user);
+                registrationRepository.getUserRepo().delete(user);
                 log.info("Successfully deleted pending user from local DB: {}", username);
                 return new RestResult<>(RestStatus.SUCCESS, "Pending user " + username + " deleted successfully");
             } catch (Exception dbException) {
@@ -348,7 +346,7 @@ public class AuthController {
 
             // 刪除本地 DB 用戶
             try {
-                registrationService.getUserRepo().delete(user);
+                registrationRepository.getUserRepo().delete(user);
                 log.info("Successfully deleted user from local DB: {}", username);
             } catch (Exception dbException) {
                 log.error("Failed to delete user from local DB: {}", username, dbException);
