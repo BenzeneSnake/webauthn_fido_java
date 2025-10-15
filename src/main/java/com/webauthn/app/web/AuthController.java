@@ -5,6 +5,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.webauthn.app.authenticator.Authenticator;
 import com.webauthn.app.common.api.RestResult;
 import com.webauthn.app.common.api.RestStatus;
+import com.webauthn.app.exception.AppRegistrationException;
+import com.webauthn.app.infrastructure.cache.WebAuthnRequestCache;
 import com.webauthn.app.infrastructure.repository.RegistrationRepository;
 import com.webauthn.app.rq.FinishLoginRequest;
 import com.webauthn.app.rq.FinishRegisrationRequest;
@@ -15,6 +17,7 @@ import com.webauthn.app.rs.CredentialGetResponse;
 import com.webauthn.app.rs.FinishLoginResponse;
 import com.webauthn.app.rs.FinishRegistrationResponse;
 import com.webauthn.app.service.KeycloakService;
+import com.webauthn.app.service.RegistrationService;
 import com.webauthn.app.strategy.RoleStrategy;
 import com.webauthn.app.user.AppUser;
 import com.webauthn.app.user.RegistrationStatus;
@@ -43,14 +46,17 @@ public class AuthController {
     private final RegistrationRepository registrationRepository;
     private final KeycloakService keycloakService;
     private final RoleStrategy roleStrategy;
-    private Map<String, PublicKeyCredentialCreationOptions> requestOptionMap = new HashMap<>();
+    private final RegistrationService registrationService;
+    private final WebAuthnRequestCache webAuthnRequestCache;
     private Map<String, AssertionRequest> assertionRequestMap = new HashMap<>();
 
-    AuthController(RegistrationRepository registrationRepository, RelyingParty relyingPary, KeycloakService keycloakService, RoleStrategy roleStrategy) {
+    AuthController(RegistrationRepository registrationRepository, RelyingParty relyingPary, KeycloakService keycloakService, RegistrationService registrationService,RoleStrategy roleStrategy,WebAuthnRequestCache webAuthnRequestCache) {
         this.relyingParty = relyingPary;
         this.registrationRepository = registrationRepository;
         this.keycloakService = keycloakService;
         this.roleStrategy = roleStrategy;
+        this.registrationService = registrationService;
+        this.webAuthnRequestCache = webAuthnRequestCache;
     }
 
     /**
@@ -115,7 +121,7 @@ public class AuthController {
                     .authenticatorSelection(selection)  // 把設定加進來
                     .build();
             PublicKeyCredentialCreationOptions registration = relyingParty.startRegistration(registrationOptions);
-            this.requestOptionMap.put(user.getUsername(), registration);
+            webAuthnRequestCache.put(user.getUsername(), registration);
 
             // 返回 註冊選項 和 userId
             return new RestResult<>(CredentialCreateResponse.from(registration, user.getId()));
@@ -133,99 +139,11 @@ public class AuthController {
     public RestResult<FinishRegistrationResponse> finishRegisration(
             @RequestBody FinishRegisrationRequest finishRegisrationRequest
     ) {
-
         try {
-            String username = finishRegisrationRequest.getUsername();
-            String credname = finishRegisrationRequest.getCredname();
-            AppUser user = registrationRepository.getUserRepo().findByUsername(username);
-
-            if (user == null) {
-                log.error("User not found for finishauth: {}", username);
-                return new RestResult<>(FinishRegistrationResponse.failure("用戶不存在"));
-            }
-
-            PublicKeyCredentialCreationOptions requestOptions = this.requestOptionMap.get(username);
-            if (requestOptions != null) {
-                PublicKeyCredential<AuthenticatorAttestationResponse, ClientRegistrationExtensionOutputs> pkc
-                        = finishRegisrationRequest.getCredential();
-                if (pkc == null) {
-                    return new RestResult<>(RestStatus.VALID.CODE, RestStatus.VALID.MESSAGE, FinishRegistrationResponse.failure("認證憑證為空"));
-                }
-
-                //FIDO2: 驗證時: 伺服器使用公鑰，去驗證此簽章是否有效。
-                FinishRegistrationOptions options = FinishRegistrationOptions.builder()
-                        .request(requestOptions)
-                        .response(pkc)
-                        .build();
-                RegistrationResult result = relyingParty.finishRegistration(options);
-
-                log.info("Stage 2: 完成認證 WebAuthn verification successful for user: {}", username);
-
-                // WebAuthn 驗證成功，儲存 Authenticator
-                Authenticator savedAuth = new Authenticator(result, pkc.getResponse(), user, credname);
-                registrationRepository.getAuthRepository().save(savedAuth);
-
-                // 清理快取
-                this.requestOptionMap.remove(username);
-
-                // 在 Keycloak 建立用戶並指派角色
-                String keycloakUserId = null;
-                try {
-                    keycloakUserId = keycloakService.createUserWithRetry(username);
-                    log.info("Successfully created user in Keycloak: {} with userId: {}", username, keycloakUserId);
-
-                    // 儲存 keycloakUserId
-                    user.setKeycloakUserId(keycloakUserId);
-
-                    // 嘗試指派預設角色
-                    try {
-                        List<String> defaultRoles = roleStrategy.getDefaultRoles(username);
-                        if (defaultRoles != null && !defaultRoles.isEmpty()) {
-                            keycloakService.assignRoles(keycloakUserId, defaultRoles);
-                            log.info("Successfully assigned default roles to user in Keycloak: {} - roles: {}", username, defaultRoles);
-                        } else {
-                            log.warn("No default roles configured for user: {}", username);
-                        }
-                    } catch (Exception roleException) {
-                        log.error("Failed to assign default roles in Keycloak: {}", username, roleException);
-                        // 角色指派失敗，rollback Keycloak 用戶
-                        try {
-                            keycloakService.deleteUser(keycloakUserId);
-                            log.info("Rolled back Keycloak user after role assignment failure: {}", username);
-                        } catch (Exception deleteException) {
-                            log.error("Failed to delete Keycloak user during rollback: {}", username, deleteException);
-                        }
-                        // 刪除 Authenticator (因為 Keycloak 建立失敗)
-                        registrationRepository.getAuthRepository().delete(savedAuth);
-                        throw new RuntimeException("Failed to assign default roles in Keycloak", roleException);
-                    }
-
-                    // 更新註冊狀態為 COMPLETED
-                    user.setRegistrationStatus(RegistrationStatus.COMPLETED);
-                    registrationRepository.getUserRepo().save(user);
-
-                    log.info("User registration fully completed: {}", username);
-
-                    return new RestResult<>(FinishRegistrationResponse.success(username));
-
-                } catch (Exception keycloakException) {
-                    log.error("Failed to create user in Keycloak: {}", username, keycloakException);
-                    // Keycloak 建立失敗，刪除 Authenticator
-                    try {
-                        registrationRepository.getAuthRepository().delete(savedAuth);
-                        log.info("Rolled back Authenticator after Keycloak creation failure: {}", username);
-                    } catch (Exception deleteException) {
-                        log.error("Failed to delete Authenticator during rollback: {}", username, deleteException);
-                    }
-                    return new RestResult<>(FinishRegistrationResponse.failure("Keycloak 建立用戶失敗: " + keycloakException.getMessage()));
-                }
-
-            } else {
-                log.error("Cached request expired for user: {}", username);
-                throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Cached request expired. Try to register again!");
-            }
-        } catch (RegistrationFailedException e) {
-            log.error("WebAuthn registration failed: {}", e.getMessage());
+            FinishRegistrationResponse response = registrationService.completeRegistration(finishRegisrationRequest);
+            return new RestResult<>(response);
+        } catch (AppRegistrationException e) {
+            log.error("Registration failed: {}", e.getMessage());
             return new RestResult<>(FinishRegistrationResponse.failure("WebAuthn 註冊失敗: " + e.getMessage()));
         } catch (Exception e) {
             log.error("Unexpected error during finishauth: {}", e.getMessage(), e);
